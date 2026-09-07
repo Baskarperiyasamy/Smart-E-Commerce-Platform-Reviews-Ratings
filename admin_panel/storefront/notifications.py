@@ -57,3 +57,9 @@ def notify_order_status(order, ntype: str, message: str):
     push a live WebSocket event — see module docstring."""
     Notification.objects.create(user=order.user, type=ntype, message=message, timestamp=timezone.now())
     send_email(order.user.email, EMAIL_SUBJECTS.get(ntype, "Order Update"), message)
+
+def notify_user(user, ntype: str, message: str):
+    """Like notify_order_status but for events with no order attached
+    (e.g. review moderation)."""
+    Notification.objects.create(user=user, type=ntype, message=message, timestamp=timezone.now())
+    send_email(user.email, EMAIL_SUBJECTS.get(ntype, "Update"), message)

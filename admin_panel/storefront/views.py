@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
-from django.db.models import Count, Sum
+from django.db.models import Count, Sum, Avg
 from django.db.models.functions import TruncDate
 from django.http import HttpResponse
 from django.shortcuts import render
@@ -16,7 +16,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from storefront.models import EcommerceUser, Order, OrderItem, Payment, Product
+from storefront.models import EcommerceUser, Order, OrderItem, Payment, Product, Review
 
 
 # ---------------------------------------------------------------------
@@ -37,6 +37,7 @@ ORDER_STATUS_COLORS = {
     "shipped": "#8B5CF6",
     "delivered": "#22C55E",
     "return_requested": "#F97316",
+    "returned": "#A855F7",
     "cancelled": "#EF4444",
 }
 
@@ -90,13 +91,26 @@ def dashboard(request):
     # --- Order status breakdown ---
     order_status_rows = Order.objects.values("order_status").annotate(count=Count("id"))
     order_status_counts = {row["order_status"]: row["count"] for row in order_status_rows}
-    order_status_keys = ["pending", "paid", "shipped", "delivered", "return_requested", "cancelled"]
+    order_status_keys = ["pending", "paid", "shipped", "delivered", "return_requested", "returned", "cancelled"]
     order_status_labels = [k.replace("_", " ").capitalize() for k in order_status_keys]
     order_status_values = [order_status_counts.get(k, 0) for k in order_status_keys]
     order_status_colors = [ORDER_STATUS_COLORS[k] for k in order_status_keys]
 
     # Low stock alerts
     low_stock_products = Product.objects.filter(stock__lt=low_stock_threshold).order_by("stock")
+
+    # --- Reviews & Ratings ---
+    review_status_rows = Review.objects.values("status").annotate(count=Count("id"))
+    review_status_counts = {row["status"]: row["count"] for row in review_status_rows}
+    reviews_pending = review_status_counts.get("pending", 0)
+    reviews_approved = review_status_counts.get("approved", 0)
+    reviews_rejected = review_status_counts.get("rejected", 0)
+
+    approved_reviews_qs = Review.objects.filter(status="approved")
+    total_approved_reviews = approved_reviews_qs.count()
+    overall_avg_rating = round(
+        approved_reviews_qs.aggregate(avg=Avg("rating"))["avg"] or 0, 2
+    )
 
     context = {
         "total_sales": round(total_sales, 2),
@@ -129,6 +143,11 @@ def dashboard(request):
             }
             for label, key in zip(order_status_labels, order_status_keys)
         ],
+        "reviews_pending": reviews_pending,
+        "reviews_approved": reviews_approved,
+        "reviews_rejected": reviews_rejected,
+        "total_approved_reviews": total_approved_reviews,
+        "overall_avg_rating": overall_avg_rating,
     }
     return render(request, "storefront/dashboard.html", context)
 

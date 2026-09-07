@@ -3,15 +3,14 @@ import uuid
 from django import forms
 from django.contrib import admin, messages
 from django.core.files.storage import default_storage
-
 from storefront.models import (
-    Cart, EcommerceUser, Notification, Order, OrderItem, Payment, Product, ReturnRequest,
+    Cart, EcommerceUser, Notification, Order, OrderItem, Payment, Product, ReturnRequest, Review,
 )
-from storefront.notifications import notify_order_status
+from storefront.notifications import notify_order_status, notify_user
 
 
 # ---------------------------------------------------------------------
-# 1. User Management — view, edit, assign roles, activate/deactivate
+# 1. User Management
 # ---------------------------------------------------------------------
 
 @admin.register(EcommerceUser)
@@ -50,7 +49,7 @@ class EcommerceUserAdmin(admin.ModelAdmin):
 
 
 # ---------------------------------------------------------------------
-# 2. Product Management — add, edit, delete, upload images, update stock
+# 2. Product Management
 # ---------------------------------------------------------------------
 
 class ProductAdminForm(forms.ModelForm):
@@ -87,7 +86,7 @@ class ProductAdmin(admin.ModelAdmin):
 
 
 # ---------------------------------------------------------------------
-# 3. Order Management — view all orders, update status, track payment
+# 3. Order Management
 # ---------------------------------------------------------------------
 
 class OrderItemInline(admin.TabularInline):
@@ -171,16 +170,11 @@ class OrderAdmin(admin.ModelAdmin):
 
 
 # ---------------------------------------------------------------------
-# 5. Day 5: Customer Experience & Insights Module — Return/Refund review
+# Return Requests
 # ---------------------------------------------------------------------
 
 @admin.register(ReturnRequest)
 class ReturnRequestAdmin(admin.ModelAdmin):
-    """Staff review queue for return requests submitted by customers via
-    POST /orders/{order_id}/return. Approving refunds the order (payment
-    status -> refunded, order status -> cancelled); rejecting sends the
-    order status back to Delivered. Both notify the customer the same way
-    OrderAdmin's shipped/delivered actions do."""
     list_display = ("short_id", "order_link", "user", "reason", "status", "created_at")
     list_filter = ("status",)
     search_fields = ("id", "order__id", "user__name", "user__email", "reason")
@@ -239,8 +233,57 @@ class ReturnRequestAdmin(admin.ModelAdmin):
 
 
 # ---------------------------------------------------------------------
-# Supporting read-only registrations (useful for admins to inspect,
-# not part of the three management tasks above)
+# Reviews & Ratings - NEW
+# ---------------------------------------------------------------------
+
+@admin.register(Review)
+class ReviewAdmin(admin.ModelAdmin):
+    """Staff review queue for customer reviews. Approving publishes the
+    review on the product page; rejecting hides it. Both notify the user."""
+    list_display = ("short_id", "product", "user", "rating", "status", "created_at")
+    list_filter = ("status", "rating")
+    search_fields = ("id", "product__name", "user__name", "user__email", "comment")
+    readonly_fields = ("id", "user", "product", "rating", "comment", "created_at")
+    fields = ("id", "user", "product", "rating", "comment", "status", "created_at")
+    ordering = ("-created_at",)
+    actions = ["approve_reviews", "reject_reviews"]
+
+    @admin.display(description="Review ID")
+    def short_id(self, obj):
+        return str(obj.id)[:8]
+
+    @admin.action(description="Approve selected reviews (publish on product page)")
+    def approve_reviews(self, request, queryset):
+        count = 0
+        for review in queryset.filter(status="pending"):
+            review.status = "approved"
+            review.save()
+            notify_user(
+                review.user, "review_approved",
+                f"Your review for {review.product.name} has been approved and is now visible on the product page.",
+            )
+            count += 1
+        self.message_user(request, f"{count} review(s) approved.", messages.SUCCESS)
+
+    @admin.action(description="Reject selected reviews")
+    def reject_reviews(self, request, queryset):
+        count = 0
+        for review in queryset.filter(status="pending"):
+            review.status = "rejected"
+            review.save()
+            notify_user(
+                review.user, "review_rejected",
+                f"Your review for {review.product.name} was not approved for publication.",
+            )
+            count += 1
+        self.message_user(request, f"{count} review(s) rejected.", messages.SUCCESS)
+
+    def has_add_permission(self, request):
+        return False
+
+
+# ---------------------------------------------------------------------
+# Supporting read-only registrations
 # ---------------------------------------------------------------------
 
 @admin.register(Cart)
@@ -258,9 +301,6 @@ class NotificationAdmin(admin.ModelAdmin):
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
-    """Standalone Payments list — filter by 'status' to see completed
-    (paid) vs. not-completed (pending/failed/refunded) at a glance,
-    without opening each order individually."""
     list_display = ("short_id", "order_link", "amount", "payment_method", "status", "transaction_id", "timestamp")
     list_filter = ("status", "payment_method")
     search_fields = ("id", "transaction_id", "order__id", "order__user__name", "order__user__email")

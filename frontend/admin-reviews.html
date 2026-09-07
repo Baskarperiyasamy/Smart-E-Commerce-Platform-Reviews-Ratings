@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Reviews · Admin · SmartCart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+<style>
+  .admin-shell { max-width: 1200px; margin: 0 auto; padding: 48px 24px 80px; }
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin: 20px 0; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+  .stat-card .stat-label { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 6px; }
+  .stat-card .stat-value { font-family: var(--font-mono); font-size: 26px; font-weight: 700; }
+  .stat-pending .stat-value { color: #f0a531; }
+  .stat-approved .stat-value { color: var(--green); }
+  .stat-rejected .stat-value { color: var(--rose); }
+  .stat-avg .stat-value { color: var(--gold); }
+
+  table.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table.admin-table th { text-align: left; padding: 12px 14px; background: var(--surface-2); color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+  table.admin-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; }
+  table.admin-table tr:last-child td { border-bottom: none; }
+  .stars { color: #f0a531; }
+
+  .status-chip { padding: 4px 10px; border-radius: 999px; font-size: 11px; font-family: var(--font-mono); }
+  .chip-pending { background: rgba(240,165,49,0.16); color: #f0a531; }
+  .chip-approved { background: rgba(52,211,153,0.14); color: var(--green); }
+  .chip-rejected { background: rgba(251,113,133,0.14); color: var(--rose); }
+
+  .row-actions button { border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; margin-right: 6px; }
+  .btn-approve { background: var(--green); color: #0a1f14; }
+  .btn-reject { background: var(--rose); color: #2b0a0e; }
+</style>
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand">Smart<span>Cart</span></div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Products</a>
+    <a href="orders.html">My Orders</a>
+    <a href="admin-returns.html">Admin Returns</a>
+    <a href="admin-reviews.html">Admin Reviews</a>
+    <a href="database.html">Database</a>
+  </nav>
+  <div id="userBadge"></div>
+</div>
+
+<div class="admin-shell">
+  <h1>Reviews</h1>
+  <p style="color:var(--text-muted);">Moderate customer reviews before they appear on product pages.</p>
+
+  <div class="stats-row" id="statsRow"></div>
+  <div id="tableArea"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  let allReviews = [];
+
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  function starString(rating) {
+    return "★".repeat(rating) + "☆".repeat(5 - rating);
+  }
+
+  function statusChipClass(s) {
+    return { pending: "chip-pending", approved: "chip-approved", rejected: "chip-rejected" }[s] || "";
+  }
+
+  async function guardAndLoad() {
+    const area = document.getElementById("tableArea");
+    if (!Auth.isLoggedIn()) {
+      area.innerHTML = `<div class="empty-state">You need to <a href="login.html">log in</a> as an admin.</div>`;
+      return;
+    }
+    let me;
+    try { me = await AuthAPI.me(); } catch {
+      area.innerHTML = `<div class="empty-state">You need to <a href="login.html">log in</a> as an admin.</div>`;
+      return;
+    }
+    if (me.role !== "admin" && me.role !== "staff") {
+      area.innerHTML = `<div class="empty-state">Admins/staff only.</div>`;
+      return;
+    }
+    await loadReviews();
+  }
+
+  async function loadReviews() {
+    const area = document.getElementById("tableArea");
+    try {
+      allReviews = await AdminReviewsAPI.list();
+      renderStats();
+      renderTable();
+    } catch (err) {
+      area.innerHTML = `<div class="empty-state">Couldn't load reviews: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderStats() {
+    const pending = allReviews.filter(r => r.status === "pending").length;
+    const approved = allReviews.filter(r => r.status === "approved").length;
+    const rejected = allReviews.filter(r => r.status === "rejected").length;
+    const approvedReviews = allReviews.filter(r => r.status === "approved");
+    const avg = approvedReviews.length
+      ? (approvedReviews.reduce((s, r) => s + r.rating, 0) / approvedReviews.length).toFixed(2)
+      : "—";
+
+    document.getElementById("statsRow").innerHTML = `
+      <div class="stat-card stat-pending"><div class="stat-label">Pending</div><div class="stat-value">${pending}</div></div>
+      <div class="stat-card stat-approved"><div class="stat-label">Approved</div><div class="stat-value">${approved}</div></div>
+      <div class="stat-card stat-rejected"><div class="stat-label">Rejected</div><div class="stat-value">${rejected}</div></div>
+      <div class="stat-card stat-avg"><div class="stat-label">Avg Rating</div><div class="stat-value">${avg}</div></div>
+    `;
+  }
+
+  function renderTable() {
+    const area = document.getElementById("tableArea");
+    if (!allReviews.length) {
+      area.innerHTML = `<div class="empty-state">No reviews yet.</div>`;
+      return;
+    }
+
+    area.innerHTML = `
+      <table class="admin-table">
+        <thead>
+          <tr><th>Product</th><th>Customer</th><th>Rating</th><th>Comment</th><th>Status</th><th>Date</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          ${allReviews.map(r => `
+            <tr id="row-${r.id}">
+              <td>${escapeHtml(r.product_name)}</td>
+              <td>${escapeHtml(r.user_name)}</td>
+              <td><span class="stars">${starString(r.rating)}</span></td>
+              <td style="max-width:260px;">${escapeHtml(r.comment || "—")}</td>
+              <td><span class="status-chip ${statusChipClass(r.status)}">${escapeHtml(r.status)}</span></td>
+              <td>${new Date(r.created_at).toLocaleDateString()}</td>
+              <td class="row-actions">
+                ${r.status === "pending" ? `
+                  <button class="btn-approve" onclick="doApprove('${r.id}')">Approve</button>
+                  <button class="btn-reject" onclick="doReject('${r.id}')">Reject</button>
+                ` : "—"}
+              </td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  async function doApprove(id) {
+    if (!confirm("Approve this review? It will become visible on the product page.")) return;
+    try { await AdminReviewsAPI.approve(id); await loadReviews(); }
+    catch (err) { alert(err.message); }
+  }
+
+  async function doReject(id) {
+    if (!confirm("Reject this review?")) return;
+    try { await AdminReviewsAPI.reject(id); await loadReviews(); }
+    catch (err) { alert(err.message); }
+  }
+
+  guardAndLoad();
+  setInterval(() => { if (allReviews.length !== undefined) loadReviews(); }, 15000);
+</script>
+</body>
+</html>

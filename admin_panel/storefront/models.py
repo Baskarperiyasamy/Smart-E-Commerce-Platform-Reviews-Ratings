@@ -26,7 +26,8 @@ ORDER_STATUS_CHOICES = [
     ("paid", "Paid"),
     ("shipped", "Shipped"),
     ("delivered", "Delivered"),
-    ("return_requested", "Return Requested"),  # Day 5: Customer Experience & Insights Module
+    ("return_requested", "Return Requested"),
+    ("returned", "Returned"),
     ("cancelled", "Cancelled"),
 ]
 
@@ -43,11 +44,21 @@ NOTIFICATION_TYPE_CHOICES = [
     ("payment_failed", "Payment Failed"),
     ("order_shipped", "Order Shipped"),
     ("order_delivered", "Order Delivered"),
-    ("order_return_requested", "Return Request Update"),  # Day 5
+    ("order_return_requested", "Return Request Update"),
+    ("return_approved", "Return Approved"),
+    ("return_rejected", "Return Rejected"),
+    ("refund_completed", "Refund Completed"),
+    ("review_approved", "Review Approved"),
+    ("review_rejected", "Review Rejected"),
 ]
 
-# Day 5: Customer Experience & Insights Module — Returns / Refunds
 RETURN_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("approved", "Approved"),
+    ("rejected", "Rejected"),
+]
+
+REVIEW_STATUS_CHOICES = [
     ("pending", "Pending"),
     ("approved", "Approved"),
     ("rejected", "Rejected"),
@@ -227,3 +238,35 @@ class ReturnRequest(models.Model):
 
     def __str__(self):
         return f"Return {str(self.id)[:8]} — {self.status}"
+
+
+# ---------------------------------------------------------------------
+# Reviews & Ratings - NEW (mirrors fastapi_backend/app/models.py::Review)
+# ---------------------------------------------------------------------
+
+class Review(models.Model):
+    """One review per user per product. Only users with a delivered (or
+    returned) order containing the product can submit one — enforced in
+    the FastAPI backend (app/routers/reviews.py). Publicly visible (via
+    GET /products/{id}/reviews) only once status == approved."""
+    id = models.CharField(primary_key=True, max_length=36, default=gen_uuid, editable=False)
+    user = models.ForeignKey(
+        EcommerceUser, on_delete=models.DO_NOTHING, db_column="user_id", related_name="reviews"
+    )
+    product = models.ForeignKey(
+        Product, on_delete=models.DO_NOTHING, db_column="product_id", related_name="reviews"
+    )
+    rating = models.IntegerField()  # 1-5
+    comment = models.TextField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=REVIEW_STATUS_CHOICES, default="pending")
+    created_at = models.DateTimeField(editable=False)
+
+    class Meta:
+        managed = False
+        db_table = "reviews"
+        verbose_name = "Review"
+        verbose_name_plural = "Reviews"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Review {str(self.id)[:8]} — {self.rating}★ ({self.status})"

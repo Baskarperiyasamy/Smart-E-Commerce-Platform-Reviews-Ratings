@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field
-
-from app.models import RoleEnum, OrderStatusEnum, PaymentStatusEnum, NotificationTypeEnum, ReturnStatusEnum
-
+from app.models import (
+    RoleEnum, OrderStatusEnum, PaymentStatusEnum,
+    NotificationTypeEnum, ReturnStatusEnum, ReviewStatusEnum
+)
 
 # ---------- Auth ----------
 
@@ -176,9 +177,6 @@ class ReturnRequestOut(BaseModel):
 
 
 class ReturnDecisionRequest(BaseModel):
-    """Optional body for POST /admin/returns/{id}/approve and /reject —
-    lets the admin leave a note explaining the decision, sent to the
-    customer as part of their notification/email."""
     admin_note: Optional[str] = Field(None, max_length=1000)
 
 
@@ -202,9 +200,6 @@ class OrderOut(BaseModel):
 
 
 class AdminReturnRequestOut(BaseModel):
-    """Used by GET /admin/returns — embeds the full order so the admin
-    frontend can show tracking dates, items, and totals without a second
-    API call per row."""
     id: str
     order_id: str
     user_id: str
@@ -247,3 +242,51 @@ class NotificationOut(BaseModel):
 
 class NotificationMarkRead(BaseModel):
     notification_id: Optional[str] = None
+
+
+# ---------- Reviews & Ratings ----------
+
+class ReviewCreate(BaseModel):
+    product_id: str
+    rating: int = Field(..., ge=1, le=5)
+    comment: Optional[str] = Field(None, max_length=1000)
+
+
+class ReviewOut(BaseModel):
+    id: str
+    user_id: str
+    user_name: str
+    product_id: str
+    rating: int
+    comment: Optional[str]
+    status: ReviewStatusEnum
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ProductReviewsOut(BaseModel):
+    product_id: str
+    average_rating: float
+    total_reviews: int
+    top_reviews: list[ReviewOut]
+    reviews: list[ReviewOut]
+
+
+class AdminReviewOut(BaseModel):
+    id: str
+    user_id: str
+    user_name: str
+    product_id: str
+    product_name: str
+    rating: int
+    comment: Optional[str]
+    status: ReviewStatusEnum
+    created_at: datetime
+
+
+class ReviewCheckOut(BaseModel):
+    can_review: bool
+    has_reviewed: bool
+    reason: Optional[str] = None

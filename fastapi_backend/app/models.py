@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Integer, Float, DateTime, ForeignKey, Enum, Text, Boolean
+    Column, String, Integer, Float, DateTime, ForeignKey, Enum, Text, Boolean, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 
@@ -26,22 +26,17 @@ class User(Base):
     id = Column(String(36), primary_key=True, default=gen_uuid)
     name = Column(String(120), nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
-
-    # Nullable because social-login (Auth0) users may not have a local password
     password_hash = Column(String(255), nullable=True)
-
     role = Column(Enum(RoleEnum), default=RoleEnum.customer, nullable=False)
-
-    # Social login metadata
-    auth_provider = Column(String(50), default="local")  # local | google | facebook
+    auth_provider = Column(String(50), default="local")
     auth0_sub = Column(String(255), unique=True, nullable=True)
-
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     cart_items = relationship("Cart", back_populates="user", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="user", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
+    reviews = relationship("Review", back_populates="user", cascade="all, delete-orphan")  # NEW
 
 
 class Product(Base):
@@ -52,12 +47,13 @@ class Product(Base):
     description = Column(Text, nullable=True)
     price = Column(Float, nullable=False)
     stock = Column(Integer, default=0)
-    images = Column(Text, nullable=True)  # comma-separated URLs (keep simple for Day 1)
+    images = Column(Text, nullable=True)
     category = Column(String(100), nullable=True, index=True, default="general")
-    popularity = Column(Integer, default=0)  # simple counter: bump on each purchase/add-to-cart
+    popularity = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     cart_items = relationship("Cart", back_populates="product", cascade="all, delete-orphan")
+    reviews = relationship("Review", back_populates="product", cascade="all, delete-orphan")  # NEW
 
 
 class Cart(Base):
@@ -72,17 +68,13 @@ class Cart(Base):
     product = relationship("Product", back_populates="cart_items")
 
 
-# ---------------------------------------------------------------------
-# Day 3: Checkout + Stripe payments
-# ---------------------------------------------------------------------
-
 class OrderStatusEnum(str, enum.Enum):
     pending = "pending"
     paid = "paid"
     shipped = "shipped"
     delivered = "delivered"
-    return_requested = "return_requested"  # Day 5: Customer Experience & Insights Module
-    returned = "returned"                  # Day 6: Admin-side refund processing
+    return_requested = "return_requested"
+    returned = "returned"
     cancelled = "cancelled"
 
 
@@ -98,23 +90,12 @@ class Order(Base):
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-
     total_amount = Column(Float, default=0.0)
-
-    # Split, per the Day 3 brief: order_status tracks fulfilment,
-    # payment_status tracks money. A shipped order is always payment_status=paid,
-    # but a paid order isn't necessarily shipped yet.
     order_status = Column(Enum(OrderStatusEnum), default=OrderStatusEnum.pending, nullable=False)
     payment_status = Column(Enum(PaymentStatusEnum), default=PaymentStatusEnum.pending, nullable=False)
-
-    # Stripe references, so the webhook can find this order again
     stripe_checkout_session_id = Column(String(255), unique=True, nullable=True, index=True)
     stripe_payment_intent_id = Column(String(255), unique=True, nullable=True, index=True)
-
     created_at = Column(DateTime, default=datetime.utcnow)
-    # NOTE: also doubles as the "delivered at" timestamp for the Day 5 return
-    # window check — it's bumped by onupdate=datetime.utcnow every time
-    # order_status changes, so the last bump is when 'delivered' was set.
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     shipped_at = Column(DateTime, nullable=True)
     delivered_at = Column(DateTime, nullable=True)
@@ -122,20 +103,15 @@ class Order(Base):
     user = relationship("User", back_populates="orders")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     payments = relationship("Payment", back_populates="order", cascade="all, delete-orphan")
-    return_request = relationship(
-        "ReturnRequest", back_populates="order", uselist=False, cascade="all, delete-orphan"
-    )
+    return_request = relationship("ReturnRequest", back_populates="order", uselist=False, cascade="all, delete-orphan")
 
 
 class OrderItem(Base):
-    """A line item snapshot of what was purchased, copied from the Cart at
-    checkout time (so later price/name changes on Product don't rewrite history)."""
     __tablename__ = "order_items"
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
     order_id = Column(String(36), ForeignKey("orders.id"), nullable=False)
     product_id = Column(String(36), ForeignKey("products.id"), nullable=False)
-
     product_name = Column(String(255), nullable=False)
     unit_price = Column(Float, nullable=False)
     quantity = Column(Integer, nullable=False)
@@ -150,19 +126,14 @@ class Payment(Base):
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
     order_id = Column(String(36), ForeignKey("orders.id"), nullable=False)
-
     amount = Column(Float, nullable=False)
-    payment_method = Column(String(50), default="stripe")  # stripe | card | etc.
-    transaction_id = Column(String(255), nullable=True, index=True)  # Stripe PaymentIntent/charge id
+    payment_method = Column(String(50), default="stripe")
+    transaction_id = Column(String(255), nullable=True, index=True)
     status = Column(Enum(PaymentStatusEnum), default=PaymentStatusEnum.pending, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     order = relationship("Order", back_populates="payments")
 
-
-# ---------------------------------------------------------------------
-# Day 4: Notifications
-# ---------------------------------------------------------------------
 
 class NotificationTypeEnum(str, enum.Enum):
     order_confirmed = "order_confirmed"
@@ -170,10 +141,12 @@ class NotificationTypeEnum(str, enum.Enum):
     payment_failed = "payment_failed"
     order_shipped = "order_shipped"
     order_delivered = "order_delivered"
-    order_return_requested = "order_return_requested"  # Day 5
-    return_approved = "return_approved"                # Day 6
-    return_rejected = "return_rejected"                # Day 6
-    refund_completed = "refund_completed"               # Day 6
+    order_return_requested = "order_return_requested"
+    return_approved = "return_approved"
+    return_rejected = "return_rejected"
+    refund_completed = "refund_completed"
+    review_approved = "review_approved"      # NEW
+    review_rejected = "review_rejected"      # NEW
 
 
 class Notification(Base):
@@ -189,10 +162,6 @@ class Notification(Base):
     user = relationship("User", back_populates="notifications")
 
 
-# ---------------------------------------------------------------------
-# Day 5: Customer Experience & Insights Module — Returns / Refunds
-# ---------------------------------------------------------------------
-
 class ReturnStatusEnum(str, enum.Enum):
     pending = "pending"
     approved = "approved"
@@ -200,23 +169,45 @@ class ReturnStatusEnum(str, enum.Enum):
 
 
 class ReturnRequest(Base):
-    """Customer-initiated return/refund request for a delivered order.
-    One return request per order (order_id is unique). Day 6 adds the
-    admin-side processing (app/routers/admin_returns.py) that actually
-    approves/rejects these, restocks inventory, and issues the Stripe
-    refund."""
     __tablename__ = "return_requests"
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
     order_id = Column(String(36), ForeignKey("orders.id"), unique=True, nullable=False)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-
     reason = Column(String(255), nullable=False)
     comment = Column(Text, nullable=True)
     admin_note = Column(Text, nullable=True)
     status = Column(Enum(ReturnStatusEnum), default=ReturnStatusEnum.pending, nullable=False)
-
     created_at = Column(DateTime, default=datetime.utcnow)
 
     order = relationship("Order", back_populates="return_request")
     user = relationship("User")
+
+
+# ---------------------------------------------------------------------
+# Reviews & Ratings - NEW
+# ---------------------------------------------------------------------
+
+class ReviewStatusEnum(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class Review(Base):
+    __tablename__ = "reviews"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    product_id = Column(String(36), ForeignKey("products.id"), nullable=False)
+    
+    rating = Column(Integer, nullable=False)  # 1-5
+    comment = Column(Text, nullable=True)
+    status = Column(Enum(ReviewStatusEnum), default=ReviewStatusEnum.pending, nullable=False)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    user = relationship("User", back_populates="reviews")
+    product = relationship("Product", back_populates="reviews")
+    
+    __table_args__ = (UniqueConstraint("user_id", "product_id", name="uq_review_user_product"),)

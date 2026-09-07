@@ -253,3 +253,25 @@ document.addEventListener("DOMContentLoaded", () => {
   renderNavAuthState();
   updateBellBadge();
 });
+// ---------------------------------------------------------------------
+// Reviews & Ratings
+// ---------------------------------------------------------------------
+
+const ReviewsAPI = {
+    submit(productId, rating, comment) {
+        return apiRequest("/reviews", {
+            method: "POST",
+            auth: true,
+            body: { product_id: productId, rating, comment: comment || null },
+        });
+    },
+    forProduct(productId) {
+        return apiRequest(`/products/${productId}/reviews`);
+    }
+};
+
+const AdminReviewsAPI = {
+  list() { return apiRequest("/admin/reviews/", { auth: true }); },
+  approve(reviewId) { return apiRequest(`/admin/reviews/${reviewId}/approve`, { method: "POST", auth: true }); },
+  reject(reviewId) { return apiRequest(`/admin/reviews/${reviewId}/reject`, { method: "POST", auth: true }); },
+};

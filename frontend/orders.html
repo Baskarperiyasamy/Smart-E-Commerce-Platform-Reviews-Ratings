@@ -114,6 +114,19 @@
   }
 
   .view-details-btn:hover { background: #4880f2; }
+
+  .review-btn {
+    background: transparent;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: var(--font-body);
+  }
+
+  .review-btn:hover { background: rgba(240, 165, 49, 0.1); }
 </style>
 </head>
 <body>
@@ -153,10 +166,12 @@
     return_requested: "#f0a531",
     cancelled: "var(--rose, #d1495b)",
     failed: "var(--rose, #d1495b)",
+    returned: "var(--green, #5fae7c)",
   };
 
   const statusLabels = {
     return_requested: "Return Requested",
+    returned: "Returned",
   };
 
   function statusLabel(s) {
@@ -164,7 +179,6 @@
   }
 
   // Day 5: Customer Experience & Insights Module — Return/Refund requests.
-  // Kept in sync with RETURN_WINDOW_DAYS in fastapi_backend/app/routers/returns.py.
   const RETURN_WINDOW_DAYS = 7;
 
   function canRequestReturn(order) {
@@ -229,6 +243,18 @@
               <span class="item-price">${formatMoney(i.unit_price)} × ${i.quantity} = ${formatMoney(i.item_total)}</span>
             </div>
           `).join("")}
+          
+          ${(order.order_status === "delivered" || order.order_status === "returned") ? `
+            <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+              <strong style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:8px;">Rate your products:</strong>
+              ${order.items.map(i => `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0;">
+                  <span style="font-size:13px; color:var(--text-muted);">${i.product_name}</span>
+                  <button class="review-btn" onclick="openReviewForm('${i.product_id}', '${i.product_name.replace(/'/g, "\\'")}')">★ Write a Review</button>
+                </div>
+              `).join("")}
+            </div>
+          ` : ""}
         </div>
 
         ${bottomRow(order)}
@@ -310,7 +336,54 @@
     }
   }
 
+  // Review form functions
+  function openReviewForm(productId, productName) {
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:100; padding:20px;";
+    overlay.innerHTML = `
+      <div style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); max-width:480px; width:100%; padding:28px; box-shadow:var(--shadow);">
+        <h3 style="margin:0 0 14px;">Review: ${productName}</h3>
+        <div class="field">
+          <label>Rating</label>
+          <select id="reviewRating" style="width:100%; padding:10px 14px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text);">
+            <option value="5">★★★★★ (5)</option>
+            <option value="4">★★★★☆ (4)</option>
+            <option value="3">★★★☆☆ (3)</option>
+            <option value="2">★★☆☆☆ (2)</option>
+            <option value="1">★☆☆☆☆ (1)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Comment (optional)</label>
+          <textarea id="reviewComment" rows="3" style="width:100%; padding:10px 14px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text); font-family:var(--font-body);"></textarea>
+        </div>
+        <div id="reviewFormError" class="alert error" style="display:none;"></div>
+        <div style="display:flex; gap:10px;">
+          <button class="btn" style="width:auto; padding:8px 18px;" onclick="submitReview('${productId}', this)">Submit Review</button>
+          <button class="btn secondary" style="width:auto; padding:8px 18px;" onclick="this.closest('div[style*=fixed]').remove()">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+  }
+
+async function submitReview(productId, btn) {
+    const rating = parseInt(document.getElementById("reviewRating").value, 10);
+    const comment = document.getElementById("reviewComment").value.trim();
+    const errBox = document.getElementById("reviewFormError");
+    errBox.style.display = "none";
+
+    try {
+        await ReviewsAPI.submit(productId, rating, comment);
+        btn.closest("div[style*=fixed]").remove();
+        alert("Thank you for your review!");  // CHANGED MESSAGE!
+    } catch (err) {
+        errBox.textContent = err.message;
+        errBox.style.display = "block";
+    }
+}
   loadOrders();
 </script>
+
 </body>
 </html>
