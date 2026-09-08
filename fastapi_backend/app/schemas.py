@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel, EmailStr, Field
+
 from app.models import (
     RoleEnum, OrderStatusEnum, PaymentStatusEnum,
     NotificationTypeEnum, ReturnStatusEnum, ReviewStatusEnum
@@ -290,3 +292,36 @@ class ReviewCheckOut(BaseModel):
     can_review: bool
     has_reviewed: bool
     reason: Optional[str] = None
+    
+    # ---------- Recommendations ----------
+
+class ProductRecommendation(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    price: float
+    stock: int
+    images: Optional[str] = None
+    category: Optional[str] = None
+    popularity: int = 0
+    average_rating: float = 0
+    review_count: int = 0
+    similarity_score: Optional[float] = None
+    total_sold: Optional[int] = None
+    trending_score: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
+class RecommendationResponse(BaseModel):
+    user_id: str
+    recommendations: List[ProductRecommendation]
+    because_you_bought: List[ProductRecommendation] = []
+    total_recommendations: int
+
+
+class HomeRecommendations(BaseModel):
+    trending: List[ProductRecommendation]
+    top_rated: List[ProductRecommendation]
+    featured: List[ProductRecommendation]

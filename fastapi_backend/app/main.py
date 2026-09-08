@@ -5,8 +5,9 @@ from app.database import Base, engine
 from app import models  # noqa: F401
 from app import ws_manager
 from app.routers import (
-    auth, products, cart, checkout, orders, returns,
-    admin_returns, reviews, admin_reviews, webhooks, notifications, ws
+    auth, products, cart, checkout, orders, returns, 
+    admin_returns, reviews, admin_reviews, recommendations,  # ADD THIS
+    webhooks, notifications, ws
 )
 
 # Create tables
@@ -46,6 +47,7 @@ app.include_router(admin_returns.router)
 app.include_router(webhooks.router)
 app.include_router(notifications.router)
 app.include_router(ws.router)
+app.include_router(recommendations.router)
 
 
 @app.get("/")

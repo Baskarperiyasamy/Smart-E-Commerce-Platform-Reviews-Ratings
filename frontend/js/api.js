@@ -118,8 +118,6 @@ const AdminAPI = {
 };
 
 const CheckoutAPI = {
-  // Validates the cart, creates an Order + Payment, and returns a Stripe
-  // Checkout URL to redirect the browser to.
   start() { return apiRequest("/checkout/", { method: "POST", auth: true }); },
 };
 
@@ -140,11 +138,27 @@ const NotificationsAPI = {
 };
 
 // ---------------------------------------------------------------------
-// Day 5: Customer Experience & Insights Module — Return/Refund requests
+// Reviews & Ratings API
+// ---------------------------------------------------------------------
+
+const ReviewsAPI = {
+  submit(productId, rating, comment) {
+    return apiRequest("/reviews", {
+      method: "POST",
+      auth: true,
+      body: { product_id: productId, rating, comment: comment || null },
+    });
+  },
+  forProduct(productId) {
+    return apiRequest(`/products/${productId}/reviews`);
+  }
+};
+
+// ---------------------------------------------------------------------
+// Returns API
 // ---------------------------------------------------------------------
 
 const ReturnsAPI = {
-  // Submits a return request for an order. `comment` may be null/empty.
   request(orderId, reason, comment) {
     return apiRequest(`/orders/${orderId}/return`, {
       method: "POST",
@@ -152,19 +166,16 @@ const ReturnsAPI = {
       body: { reason, comment: comment || null },
     });
   },
-  // Fetches the return request (if any) already submitted for an order.
   get(orderId) {
     return apiRequest(`/orders/${orderId}/return`, { auth: true });
   },
 };
 
 // ---------------------------------------------------------------------
-// Day 6: Admin-side return/refund processing
+// Admin Returns API
 // ---------------------------------------------------------------------
 
 const AdminReturnsAPI = {
-  // Every return request, with the full order embedded (tracking dates,
-  // items, totals) — powers admin-returns.html.
   list() { return apiRequest("/admin/returns/", { auth: true }); },
   approve(returnId, adminNote) {
     return apiRequest(`/admin/returns/${returnId}/approve`, {
@@ -183,7 +194,38 @@ const AdminReturnsAPI = {
 };
 
 // ---------------------------------------------------------------------
-// Real-time WebSocket connection (order_status_updated, cart_updated)
+// Recommendations API (NO AUTH required for /me)
+// ---------------------------------------------------------------------
+
+const RecommendationsAPI = {
+    // Get recommendations for current user (NO auth required)
+    forMe(limit = 10) {
+        return apiRequest(`/recommendations/me?limit=${limit}`);
+    },
+    
+    // Get recommendations for a specific user (admin only)
+    forUser(userId, limit = 10) {
+        return apiRequest(`/recommendations/${userId}?limit=${limit}`);
+    },
+    
+    // Get similar products
+    similar(productId, limit = 6) {
+        return apiRequest(`/products/${productId}/similar?limit=${limit}`);
+    },
+    
+    // Get trending products
+    trending(limit = 10) {
+        return apiRequest(`/products/trending?limit=${limit}`);
+    },
+    
+    // Get homepage recommendations
+    home(limit = 10) {
+        return apiRequest(`/recommendations/home?limit=${limit}`);
+    }
+};
+
+// ---------------------------------------------------------------------
+// WebSocket connection
 // ---------------------------------------------------------------------
 
 const WS_BASE_URL = "ws://127.0.0.1:8000";
@@ -253,25 +295,3 @@ document.addEventListener("DOMContentLoaded", () => {
   renderNavAuthState();
   updateBellBadge();
 });
-// ---------------------------------------------------------------------
-// Reviews & Ratings
-// ---------------------------------------------------------------------
-
-const ReviewsAPI = {
-    submit(productId, rating, comment) {
-        return apiRequest("/reviews", {
-            method: "POST",
-            auth: true,
-            body: { product_id: productId, rating, comment: comment || null },
-        });
-    },
-    forProduct(productId) {
-        return apiRequest(`/products/${productId}/reviews`);
-    }
-};
-
-const AdminReviewsAPI = {
-  list() { return apiRequest("/admin/reviews/", { auth: true }); },
-  approve(reviewId) { return apiRequest(`/admin/reviews/${reviewId}/approve`, { method: "POST", auth: true }); },
-  reject(reviewId) { return apiRequest(`/admin/reviews/${reviewId}/reject`, { method: "POST", auth: true }); },
-};

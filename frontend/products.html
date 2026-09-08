@@ -12,6 +12,68 @@
   .stars { color: #f0a531; font-size: 14px; letter-spacing: 1px; }
   .review-summary { font-size: 12px; color: var(--text-muted); margin: 4px 0 10px; cursor: pointer; }
   .review-summary:hover { color: var(--gold); }
+  
+  .recommendation-section {
+    margin: 40px 0;
+    padding: 20px;
+    background: var(--surface-2);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  
+  .recommendation-section h2 {
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border);
+    font-size: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  .product-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    position: relative;
+  }
+  
+  .product-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+  }
+  
+  .rating-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 0;
+  }
+  
+  .rating-text {
+    font-weight: 600;
+    color: var(--text);
+  }
+  
+  .review-count {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  
+  .similar-btn {
+    background: transparent;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    margin-top: 8px;
+    width: 100%;
+    font-family: var(--font-body);
+  }
+  
+  .similar-btn:hover {
+    background: rgba(240, 165, 49, 0.1);
+  }
 </style>
 </head>
 <body>
@@ -55,9 +117,16 @@
   </div>
 
   <div id="grid" class="grid"></div>
+
+  <!-- Trending Products Section -->
+  <div id="trendingSection" class="recommendation-section"></div>
+
+  <!-- Similar Products Section (loaded on demand) -->
+  <div id="similarProductsSection" class="recommendation-section" style="display:none;"></div>
 </div>
 
 <script src="js/api.js"></script>
+<script src="js/recommendations.js"></script>
 <script>
   const categoryFilter = document.getElementById("categoryFilter");
   const sortFilter = document.getElementById("sortFilter");
@@ -98,13 +167,19 @@
       }
       
       grid.innerHTML = products.map(p => `
-        <div class="card">
+        <div class="card product-card">
           <h3>${p.name}</h3>
           <p style="color:var(--text-muted); font-size:13px;">${p.description || ""}</p>
+          <div class="rating-row">
+            <span class="stars" id="stars-${p.id}"></span>
+            <span class="rating-text" id="ratingText-${p.id}"></span>
+            <span class="review-count" id="reviewCount-${p.id}"></span>
+          </div>
           <p class="price">$${p.price.toFixed(2)}</p>
           <p class="stock">${p.stock > 0 ? p.stock + " in stock" : "Out of stock"} ${p.category ? "· " + p.category : ""}</p>
-          <p class="review-summary" id="reviewSummary-${p.id}" onclick="openReviews('${p.id}', '${p.name.replace(/'/g, "\\'")}')">Loading reviews…</p>
+          <p class="review-summary" id="reviewSummary-${p.id}" onclick="openReviews('${p.id}', '${p.name.replace(/'/g, "\\'")}')"></p>
           <button class="btn" ${p.stock <= 0 ? "disabled style='opacity:0.5;cursor:not-allowed;'" : ""} onclick="addToCart('${p.id}')">Add to Cart</button>
+          <button class="similar-btn" onclick="showSimilarProducts('${p.id}', '${p.name.replace(/'/g, "\\'")}')">🔍 View Similar Products</button>
         </div>
       `).join("");
 
@@ -133,24 +208,49 @@
 
   loadCategories();
   loadProducts();
+  loadTrendingProducts();
 
   function starString(rating) {
+    if (!rating || rating === 0) return "";
     const full = Math.round(rating);
     return "★".repeat(full) + "☆".repeat(5 - full);
   }
 
- async function loadReviewSummary(productId) {
+  async function loadReviewSummary(productId) {
     const el = document.getElementById(`reviewSummary-${productId}`);
+    const starsEl = document.getElementById(`stars-${productId}`);
+    const ratingTextEl = document.getElementById(`ratingText-${productId}`);
+    const reviewCountEl = document.getElementById(`reviewCount-${productId}`);
+    
     if (!el) return;
+    
     try {
         const data = await ReviewsAPI.forProduct(productId);
-        el.innerHTML = data.total_reviews
-            ? `<span class="stars">${starString(data.average_rating)}</span> ${data.average_rating} (${data.total_reviews} review${data.total_reviews === 1 ? "" : "s"})`
-            : `No reviews yet`;
-    } catch {
-        el.textContent = "";
+        
+        if (data && data.total_reviews > 0) {
+            // Update stars display
+            if (starsEl) starsEl.textContent = starString(data.average_rating);
+            if (ratingTextEl) ratingTextEl.textContent = data.average_rating;
+            if (reviewCountEl) reviewCountEl.textContent = `(${data.total_reviews} review${data.total_reviews === 1 ? "" : "s"})`;
+            
+            // Update summary
+            el.innerHTML = `<span class="stars">${starString(data.average_rating)}</span> ${data.average_rating} (${data.total_reviews} review${data.total_reviews === 1 ? "" : "s"})`;
+        } else {
+            // No reviews - clear loading text
+            if (starsEl) starsEl.textContent = "";
+            if (ratingTextEl) ratingTextEl.textContent = "";
+            if (reviewCountEl) reviewCountEl.textContent = "";
+            el.innerHTML = `No reviews yet`;
+        }
+    } catch (err) {
+        // If API fails, show "No reviews yet" instead of "Loading..."
+        if (starsEl) starsEl.textContent = "";
+        if (ratingTextEl) ratingTextEl.textContent = "";
+        if (reviewCountEl) reviewCountEl.textContent = "";
+        el.innerHTML = `No reviews yet`;
+        console.warn(`Failed to load reviews for ${productId}:`, err);
     }
-}
+  }
 
   async function openReviews(productId, productName) {
     let data;
@@ -193,6 +293,44 @@
     `;
     document.body.appendChild(overlay);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+  }
+
+  // Show similar products for a clicked product
+  async function showSimilarProducts(productId, productName) {
+    const section = document.getElementById("similarProductsSection");
+    section.style.display = "block";
+    section.innerHTML = `<h2><span class="section-icon">🔄</span> You May Also Like (Similar to ${productName})</h2><div class="empty-rec">Loading similar products...</div>`;
+    
+    try {
+      const similar = await RecommendationsAPI.similar(productId, 6);
+      if (!similar.length) {
+        section.innerHTML = `<h2><span class="section-icon">🔄</span> You May Also Like</h2><div class="empty-rec">No similar products found.</div>`;
+        return;
+      }
+      
+      section.innerHTML = `
+        <h2><span class="section-icon">🔄</span> You May Also Like (Similar to ${productName})</h2>
+        <div class="grid">
+          ${similar.map(p => `
+            <div class="card product-card">
+              <h3>${p.name}</h3>
+              <p style="color:var(--text-muted); font-size:13px;">${p.description || ""}</p>
+              <div class="rating-row">
+                <span class="stars">${starString(p.average_rating)}</span>
+                <span class="rating-text">${p.average_rating || "N/A"}</span>
+                <span class="review-count">(${p.review_count} reviews)</span>
+              </div>
+              <p class="price">$${p.price.toFixed(2)}</p>
+              <p class="stock">${p.stock > 0 ? p.stock + " in stock" : "Out of stock"}</p>
+              <button class="btn" ${p.stock <= 0 ? "disabled style='opacity:0.5;cursor:not-allowed;'" : ""} onclick="addToCart('${p.id}')">Add to Cart</button>
+              <button class="similar-btn" onclick="showSimilarProducts('${p.id}', '${p.name.replace(/'/g, "\\'")}')">🔍 View Similar</button>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    } catch (err) {
+      section.innerHTML = `<h2><span class="section-icon">🔄</span> You May Also Like</h2><div class="empty-rec">Error loading similar products: ${err.message}</div>`;
+    }
   }
 </script>
 
